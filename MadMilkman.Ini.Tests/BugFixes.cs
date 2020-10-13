@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using NUnit.Framework;
 
 namespace MadMilkman.Ini.Tests
@@ -65,6 +66,84 @@ namespace MadMilkman.Ini.Tests
             Assert.AreEqual("[Segment[A;B]]", lines[8]);
             Assert.AreEqual("[Segment[A;B]]", lines[9]);
             Assert.AreEqual("[Segment[A;B;]", lines[10]);
+        }
+
+        public class Bug2Class
+        {
+            public string[] NullArray { get; set; }
+            public List<string> NullList { get; set; }
+
+            public string[] EmptyArray { get; set; }
+            public List<string> EmptyList { get; set; }
+        }
+
+        [Test]
+        public void Bug2()
+        {
+            var ini = new IniFile();
+            var sec = ini.Sections.Add("Sample");
+            
+            sec.Serialize(
+                new Bug2Class()
+                {
+                    EmptyArray = new string[3],
+                    EmptyList = new List<string>()
+                });
+
+            var deserializeObj = sec.Deserialize<Bug2Class>();
+
+            Assert.IsNull(sec.Keys["NullArray"].Value);
+            Assert.IsNull(sec.Keys["NullList"].Value);
+            Assert.AreEqual("{,,}", sec.Keys["EmptyArray"].Value);
+            Assert.AreEqual("{}", sec.Keys["EmptyList"].Value);
+
+            Assert.IsNull(deserializeObj.NullArray);
+            Assert.IsNull(deserializeObj.NullList);
+            CollectionAssert.AreEqual(new string[] { "", "", "" }, deserializeObj.EmptyArray);
+            CollectionAssert.IsEmpty(deserializeObj.EmptyList);
+        }
+
+        [Test]
+        public void Bug3()
+        {
+            string iniFileContent = "[sektion]" + Environment.NewLine +
+                                    "key=\"Data Source=server;Initial Catalog=catalog;Integrated Security=SSPI\"";
+            IniFile file = IniUtilities.LoadIniFileContent(iniFileContent, new IniOptions());
+
+            IniKey key = file.Sections["sektion"].Keys["key"];
+            Assert.AreEqual("\"Data Source=server;Initial Catalog=catalog;Integrated Security=SSPI\"", key.Value);
+            Assert.IsNull(key.LeadingComment.Text);
+        }
+
+        [Test]
+        public void Bug4()
+        {
+            string iniFileContent = "suffix= LLC © 2016" + Environment.NewLine +
+                                    "suffix=LLC © 2016  ";
+            IniFile file =
+                IniUtilities.LoadIniFileContent(iniFileContent,
+                    new IniOptions() { Encoding = System.Text.Encoding.UTF8 });
+
+            Assert.AreEqual(" LLC © 2016", file.Sections[0].Keys[0].Value);
+            Assert.AreEqual("LLC © 2016  ", file.Sections[0].Keys[1].Value);
+
+            iniFileContent = "suffix = LLC © 2016" + Environment.NewLine +
+                             "suffix =   LLC © 2016  ";
+            file = IniUtilities.LoadIniFileContent(iniFileContent,
+                new IniOptions() { Encoding = System.Text.Encoding.UTF8 });
+
+            Assert.AreEqual("LLC © 2016", file.Sections[0].Keys[0].Value);
+            Assert.AreEqual("  LLC © 2016  ", file.Sections[0].Keys[1].Value);
+        }
+
+        [Test]
+        public void Bug5()
+        {
+            string iniFileContent = "[Section 1]" + Environment.NewLine +
+                                    "Key 1.1=Value 1.1";
+            IniFile file = IniUtilities.LoadIniFileContent(iniFileContent, new IniOptions());
+
+            Assert.AreEqual("Value 1.1", file.Sections["Section 1"].Keys["Key 1.1"].Value);
         }
     }
 }

@@ -85,9 +85,9 @@ namespace MadMilkman.Ini
                 this.currentTrailingComment.Text += Environment.NewLine + text;
         }
 
+        /* MZ(2015-08-29): Added support for section names that may contain end wrapper or comment starter characters. */
         private void ReadSection(int leftIndention, string line, IniFile file)
         {
-            /* MZ(2015-08-29): Added support for section names that may contain end wrapper or comment starter characters. */
             int sectionEndIndex = -1, potentialCommentIndex, tempIndex = leftIndention;
             while (tempIndex != -1 && ++tempIndex <= line.Length)
             {
@@ -142,47 +142,63 @@ namespace MadMilkman.Ini
                 if (this.currentSection == null)
                     this.currentSection = file.Sections.Add(IniSection.GlobalSectionName);
 
-                var currentKey = new IniKey(file,
-                                            line.Substring(leftIndention, keyDelimiterIndex - leftIndention).TrimEnd(),
-                                            this.currentTrailingComment)
+                /* MZ(2016-04-04): Fixed issue with trimming values. */
+                bool spacedDelimiter = keyDelimiterIndex > 0 && line[keyDelimiterIndex - 1] == ' ';
+                string keyName = line.Substring(leftIndention, keyDelimiterIndex - leftIndention - (spacedDelimiter ? 1 : 0));
+                var currentKey = new IniKey(file, keyName, this.currentTrailingComment)
                                  {
                                      LeftIndentation = leftIndention,
                                      LeadingComment = { EmptyLinesBefore = this.currentEmptyLinesBefore }
                                  };
-
                 this.currentSection.Keys.Add(currentKey);
 
-                this.ReadKeyValueAndLeadingComment(line.Substring(++keyDelimiterIndex).TrimStart(), currentKey);
+                ++keyDelimiterIndex;
+                if (spacedDelimiter && keyDelimiterIndex < line.Length && line[keyDelimiterIndex] == ' ')
+                    ++keyDelimiterIndex;
+
+                this.ReadValue(line.Substring(keyDelimiterIndex), currentKey);
             }
 
             this.currentTrailingComment = null;
         }
 
-        private void ReadKeyValueAndLeadingComment(string lineLeftover, IniKey key)
+        private void ReadValue(string lineLeftover, IniKey key)
         {
-            /* REMARKS:  First occurrence of comment's starting character (e.g. ';') defines key's value.
-             *          
-             * CONSIDER: Implement a support for quoted values, thus enabling them to contain comment's starting characters. */
-
             int valueEndIndex = lineLeftover.IndexOf((char)this.options.CommentStarter);
 
+            /* MZ(2016-04-04): Fixed issue with trimming values. */
             if (valueEndIndex == -1)
-                key.Value = lineLeftover.TrimEnd();
-
+                key.Value = lineLeftover;
             else if (valueEndIndex == 0)
-                key.Value = key.LeadingComment.Text = string.Empty;
+            {
+                key.Value = string.Empty;
+                key.LeadingComment.Text = lineLeftover.Substring(1);
+            }
+            else
+                this.ReadValueLeadingComment(lineLeftover, valueEndIndex, key);
+        }
 
+        /* MZ(2016-02-23): Added support for quoted values which can contain comment's starting characters. */
+        private void ReadValueLeadingComment(string lineLeftover, int potentialCommentIndex, IniKey key)
+        {
+            int quoteEndIndex = lineLeftover.IndexOf('"', 1);
+            if (lineLeftover[0] == '"' && quoteEndIndex != -1)
+                while (quoteEndIndex > potentialCommentIndex && potentialCommentIndex != -1)
+                    potentialCommentIndex = lineLeftover.IndexOf((char)this.options.CommentStarter, ++potentialCommentIndex);
+
+            if (potentialCommentIndex == -1)
+                key.Value = lineLeftover.TrimEnd();
             else
             {
-                key.LeadingComment.Text = lineLeftover.Substring(valueEndIndex + 1);
+                key.LeadingComment.Text = lineLeftover.Substring(potentialCommentIndex + 1);
 
                 // The amount of 'whitespace' characters between key's value and comment's starting character.
                 int leftIndention = 0;
-                while (lineLeftover[--valueEndIndex] == ' ' || lineLeftover[valueEndIndex] == '\t')
+                while (potentialCommentIndex > 0 && (lineLeftover[--potentialCommentIndex] == ' ' || lineLeftover[potentialCommentIndex] == '\t'))
                     leftIndention++;
 
                 key.LeadingComment.LeftIndentation = leftIndention;
-                key.Value = lineLeftover.Substring(0, ++valueEndIndex);
+                key.Value = lineLeftover.Substring(0, ++potentialCommentIndex);
             }
         }
     }
